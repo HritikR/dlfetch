@@ -25,10 +25,23 @@ const (
 )
 
 type DownloadTask struct {
-	ID         int
-	FileName   string
-	TotalBytes int64
-	DoneBytes  int64
-	Status     DownloadStatus
-	Error      string
+	ID         int            `json:"id"`
+	FileName   string         `json:"fileName"`
+	TotalBytes int64          `json:"totalBytes"`
+	DoneBytes  int64          `json:"doneBytes"`
+	Status     DownloadStatus `json:"status"`
+	Error      string         `json:"error,omitempty"`
+}
+
+type TaskStatusCount struct {
+	Total      int `json:"total,omitempty"`
+	Pending    int `json:"pending,omitempty"`
+	InProgress int `json:"in_progress,omitempty"`
+	Completed  int `json:"completed,omitempty"`
+	Failed     int `json:"failed,omitempty"`
+}
+
+type MonitorSnapshot struct {
+	Tasks []DownloadTask  `json:"tasks"`
+	Count TaskStatusCount `json:"count"`
 }

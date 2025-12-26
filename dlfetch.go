@@ -27,7 +27,7 @@ type Fetcher struct {
 	stopChan      chan struct{}                // Channel to signal stopping of fetcher
 	onComplete    func(DownloadResult)         // Callback function on download completion
 	onError       func(DownloadRequest, error) // Callback function on error
-	monitor       *Monitor
+	monitor       Monitor
 }
 
 // FetcherOption defines a function type for configuring the Fetcher.
@@ -69,6 +69,13 @@ func WithOnError(callback func(DownloadRequest, error)) FetcherOption {
 	}
 }
 
+// WithMonitor sets the Monitor for the Fetcher.
+func WithMonitor(m Monitor) FetcherOption {
+	return func(f *Fetcher) {
+		f.monitor = m
+	}
+}
+
 // New creates a new Fetcher instance with the provided options.
 func New(options ...FetcherOption) *Fetcher {
 	// Default values
@@ -78,6 +85,7 @@ func New(options ...FetcherOption) *Fetcher {
 		targetDir:     defaultTargetDir,
 		queue:         make(chan DownloadRequest, defaultQueueSize),
 		stopChan:      make(chan struct{}),
+		monitor:       &noopMonitor{},
 	}
 
 	// Apply provided options
@@ -142,24 +150,31 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 	// Ensure the request has a valid FileName
 	EnsureFileName(&req)
 
+	// Add download for monitoring if monitor is available
+	f.monitor.add(req)
+
 	fullPath := filepath.Join(f.targetDir, req.Path, req.FileName)
 
 	// Ensure directory exists
 	err := EnsureDir(fullPath)
 	if err != nil {
+		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
 	}
 
 	// Perform the download
 	resp, err := f.requestClient.Get(req.URL)
 	if err != nil {
+		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return DownloadResult{}, fmt.Errorf("failed to download file: %s, status code: %d", req.URL, resp.StatusCode)
+		err = fmt.Errorf("failed to download file: %s, status code: %d", req.URL, resp.StatusCode)
+		f.monitor.markAsFailed(req.ID, err)
+		return DownloadResult{}, err
 	}
 
 	// Write to a tmp file first
@@ -167,23 +182,37 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 	tmpPath := fullPath + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
+		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
 	}
 	defer out.Close()
 
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	mw := &monitorWriter{
+		id:      req.ID,
+		total:   resp.ContentLength,
+		monitor: f.monitor,
+	}
+
+	reader := io.TeeReader(resp.Body, mw)
+
+	if _, err := io.Copy(out, reader); err != nil {
 		out.Close()
 		_ = os.Remove(tmpPath)
+		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
 	}
 
 	if err := out.Close(); err != nil {
+		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
 	}
 
 	if err := os.Rename(tmpPath, fullPath); err != nil {
+		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
 	}
+
+	f.monitor.markAsCompleted(req.ID)
 
 	return DownloadResult{
 		ID:       req.ID,
