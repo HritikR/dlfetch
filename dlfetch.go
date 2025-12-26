@@ -27,7 +27,7 @@ type Fetcher struct {
 	stopChan      chan struct{}                // Channel to signal stopping of fetcher
 	onComplete    func(DownloadResult)         // Callback function on download completion
 	onError       func(DownloadRequest, error) // Callback function on error
-	monitor       Monitor
+	monitor       Monitor                      // Monitor to track download progress and status
 }
 
 // FetcherOption defines a function type for configuring the Fetcher.
