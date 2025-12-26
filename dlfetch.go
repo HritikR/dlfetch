@@ -148,15 +148,21 @@ func (f *Fetcher) worker() {
 // It returns a DownloadResult or an error if the download fails.
 func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 	// Ensure the request has a valid FileName
-	EnsureFileName(&req)
+	ensureFileName(&req)
 
 	// Add download for monitoring if monitor is available
 	f.monitor.add(req)
 
 	fullPath := filepath.Join(f.targetDir, req.Path, req.FileName)
 
+	// Check if file already exists
+	if checkFileExists(fullPath) {
+		err := fmt.Errorf("file already exists: id=%d, name=%s", req.ID, req.FileName)
+		f.monitor.markAsFailed(req.ID, err)
+	}
+
 	// Ensure directory exists
-	err := EnsureDir(fullPath)
+	err := ensureDir(fullPath)
 	if err != nil {
 		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
@@ -220,6 +226,6 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 		ID:       req.ID,
 		FileName: req.FileName,
 		Path:     fullPath,
-		MimeType: DetermineMimeType(req, respContentType, fullPath),
+		MimeType: determineMimeType(req, respContentType, fullPath),
 	}, nil
 }
