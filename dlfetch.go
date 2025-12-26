@@ -5,6 +5,13 @@ import (
 	"sync"
 )
 
+// Default configuration values
+const (
+	defaultTargetDir = "./downloads"
+	defaultWorkers   = 4
+	defaultQueueSize = 100
+)
+
 // Fetcher is responsible for managing download requests and processing them.
 // It supports configuration through functional options.
 type Fetcher struct {
@@ -62,9 +69,9 @@ func New(options ...FetcherOption) *Fetcher {
 	// Default values
 	fetcher := &Fetcher{
 		requestClient: http.DefaultClient,
-		maxWorkers:    4,
-		targetDir:     "./downloads",
-		queue:         make(chan DownloadRequest, 100),
+		maxWorkers:    defaultWorkers,
+		targetDir:     defaultTargetDir,
+		queue:         make(chan DownloadRequest, defaultQueueSize),
 		stopChan:      make(chan struct{}),
 	}
 
