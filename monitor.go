@@ -47,7 +47,7 @@ func (m *TaskMonitor) update(id int, done int64, total int64) {
 }
 
 // Mark task as completed
-func (m *TaskMonitor) makeAsCompleted(id int) {
+func (m *TaskMonitor) markAsCompleted(id int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t, ok := m.tasks[id]; ok {
