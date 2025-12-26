@@ -13,3 +13,22 @@ type DownloadResult struct {
 	Path     string
 	MimeType string
 }
+
+// Download Monitoring
+type DownloadStatus string
+
+const (
+	StatusPending    DownloadStatus = "pending"
+	StatusInProgress DownloadStatus = "in_progress"
+	StatusCompleted  DownloadStatus = "completed"
+	StatusFailed     DownloadStatus = "failed"
+)
+
+type DownloadTask struct {
+	ID         int
+	FileName   string
+	TotalBytes int64
+	DoneBytes  int64
+	Status     DownloadStatus
+	Error      string
+}
