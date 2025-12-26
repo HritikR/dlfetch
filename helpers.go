@@ -1,6 +1,8 @@
 package dlfetch
 
 import (
+	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 )
@@ -24,4 +26,25 @@ func EnsureFileName(req *DownloadRequest) {
 func EnsureDir(path string) error {
 	dir := filepath.Dir(path)
 	return os.MkdirAll(dir, 0755)
+}
+
+// DetermineMimeType returns the most accurate MIME type for a downloaded file.
+func DetermineMimeType(req DownloadRequest, respContentType string, filePath string) string {
+	if respContentType != "" && respContentType != "application/octet-stream" {
+		return respContentType
+	}
+	if req.MimeType != "" {
+		return req.MimeType
+	}
+	if ext := filepath.Ext(filePath); ext != "" {
+		if mt := mime.TypeByExtension(ext); mt != "" {
+			return mt
+		}
+	}
+	// fallback: detect from file bytes
+	file, _ := os.Open(filePath)
+	defer file.Close()
+	buf := make([]byte, 512)
+	n, _ := file.Read(buf)
+	return http.DetectContentType(buf[:n])
 }

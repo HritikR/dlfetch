@@ -214,10 +214,12 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 
 	f.monitor.markAsCompleted(req.ID)
 
+	respContentType := resp.Header.Get("Content-Type")
+
 	return DownloadResult{
 		ID:       req.ID,
 		FileName: req.FileName,
 		Path:     fullPath,
-		MimeType: resp.Header.Get("Content-Type"),
+		MimeType: DetermineMimeType(req, respContentType, fullPath),
 	}, nil
 }

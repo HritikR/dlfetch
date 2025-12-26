@@ -5,6 +5,7 @@ type DownloadRequest struct {
 	URL      string
 	FileName string
 	Path     string // Path will be optional; if empty, use only FileName and targetDir
+	MimeType string
 }
 
 type DownloadResult struct {
