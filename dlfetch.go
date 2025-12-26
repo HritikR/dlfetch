@@ -1,7 +1,10 @@
 package dlfetch
 
 import (
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -93,4 +96,83 @@ func (f *Fetcher) EnqueueMany(requests []DownloadRequest) {
 	for _, request := range requests {
 		f.queue <- request
 	}
+}
+
+// Start begins processing download requests with the configured number of workers.
+func (f *Fetcher) Start() {
+	for i := 0; i < f.maxWorkers; i++ {
+		f.wg.Add(1)
+		go f.worker()
+	}
+}
+
+// Stop signals the Fetcher to stop processing and waits for all workers to finish.
+func (f *Fetcher) Stop() {
+	close(f.stopChan)
+	f.wg.Wait()
+}
+
+func (f *Fetcher) worker() {
+	defer f.wg.Done()
+
+	for {
+		select {
+		case req := <-f.queue:
+			result, err := f.processDownload(req)
+			if err != nil {
+				if f.onError != nil {
+					f.onError(req, err)
+				}
+				continue
+			}
+			if f.onComplete != nil {
+				f.onComplete(result)
+			}
+		case <-f.stopChan:
+			return
+		}
+	}
+}
+
+// processDownload handles the actual downloading of a file based on the DownloadRequest.
+// It returns a DownloadResult or an error if the download fails.
+func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
+	// Ensure the request has a valid FileName
+	EnsureFileName(&req)
+
+	fullPath := filepath.Join(f.targetDir, req.Path, req.FileName)
+
+	// Ensure directory exists
+	err := EnsureDir(fullPath)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+
+	// Perform the download
+	resp, err := f.requestClient.Get(req.URL)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+
+	defer resp.Body.Close()
+
+	// Create the file
+	out, err := os.Create(fullPath)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+	defer out.Close()
+
+	// Write the body to file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+
+	return DownloadResult{
+		ID:       req.ID,
+		FileName: req.FileName,
+		Path:     fullPath,
+		MimeType: resp.Header.Get("Content-Type"),
+	}, nil
 }

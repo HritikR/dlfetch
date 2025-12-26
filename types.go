@@ -9,6 +9,7 @@ type DownloadRequest struct {
 
 type DownloadResult struct {
 	ID       int
+	FileName string
 	Path     string
 	MimeType string
 }
