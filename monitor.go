@@ -10,6 +10,7 @@ type Monitor interface {
 	markAsCompleted(id int)
 	markAsFailed(id int, err error)
 	GetSnapshot() MonitorSnapshot
+	EventSignal() <-chan struct{}
 }
 
 type TaskMonitor struct {
@@ -138,3 +139,4 @@ func (n *noopMonitor) update(int, int64, int64)     {}
 func (n *noopMonitor) markAsCompleted(int)          {}
 func (n *noopMonitor) markAsFailed(int, error)      {}
 func (n *noopMonitor) GetSnapshot() MonitorSnapshot { return MonitorSnapshot{} }
+func (n *noopMonitor) EventSignal() <-chan struct{} { return nil }
