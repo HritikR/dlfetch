@@ -13,14 +13,33 @@ type Monitor interface {
 }
 
 type TaskMonitor struct {
-	mu    sync.RWMutex
-	tasks map[int]*DownloadTask
+	mu          sync.RWMutex
+	tasks       map[int]*DownloadTask
+	eventSignal chan struct{}
 }
 
 // Creates a TaskMonitor
 func NewMonitor() *TaskMonitor {
 	return &TaskMonitor{
-		tasks: make(map[int]*DownloadTask),
+		tasks:       make(map[int]*DownloadTask),
+		eventSignal: make(chan struct{}, 1),
+	}
+}
+
+// EventSignal returns a read-only channel that signals
+// whenever the TaskMonitor's state changes.
+func (m *TaskMonitor) EventSignal() <-chan struct{} {
+	return m.eventSignal
+}
+
+// signalEvent sends a signal on the eventSignal channel
+// to notify listeners that the TaskMonitor has changed.
+// If the channel already has a pending signal, it does nothing
+// to avoid blocking or sending duplicate notifications.
+func (m *TaskMonitor) signalEvent() {
+	select {
+	case m.eventSignal <- struct{}{}:
+	default:
 	}
 }
 
@@ -33,6 +52,7 @@ func (m *TaskMonitor) add(req DownloadRequest) {
 		FileName: req.FileName,
 		Status:   StatusPending,
 	}
+	m.signalEvent()
 }
 
 // Update the progress and status of a download task
@@ -44,6 +64,7 @@ func (m *TaskMonitor) update(id int, done int64, total int64) {
 		t.TotalBytes = total
 		t.Status = StatusInProgress
 	}
+	m.signalEvent()
 }
 
 // Mark task as completed
@@ -54,6 +75,7 @@ func (m *TaskMonitor) markAsCompleted(id int) {
 		t.DoneBytes = t.TotalBytes
 		t.Status = StatusCompleted
 	}
+	m.signalEvent()
 }
 
 // Mark task as failed
@@ -64,6 +86,7 @@ func (m *TaskMonitor) markAsFailed(id int, err error) {
 		t.Status = StatusFailed
 		t.Error = err.Error()
 	}
+	m.signalEvent()
 }
 
 // GetSnapshot returns a copy of the current state of all download
