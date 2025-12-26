@@ -1,6 +1,7 @@
 package dlfetch
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -156,16 +157,30 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 
 	defer resp.Body.Close()
 
-	// Create the file
-	out, err := os.Create(fullPath)
+	if resp.StatusCode != http.StatusOK {
+		return DownloadResult{}, fmt.Errorf("failed to download file: %s, status code: %d", req.URL, resp.StatusCode)
+	}
+
+	// Write to a tmp file first
+	// To prevent incomplete files in case of failure
+	tmpPath := fullPath + ".tmp"
+	out, err := os.Create(tmpPath)
 	if err != nil {
 		return DownloadResult{}, err
 	}
 	defer out.Close()
 
-	// Write the body to file
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		out.Close()
+		_ = os.Remove(tmpPath)
+		return DownloadResult{}, err
+	}
+
+	if err := out.Close(); err != nil {
+		return DownloadResult{}, err
+	}
+
+	if err := os.Rename(tmpPath, fullPath); err != nil {
 		return DownloadResult{}, err
 	}
 

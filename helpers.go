@@ -23,5 +23,5 @@ func EnsureFileName(req *DownloadRequest) {
 // EnsureDir ensures that the directory for the given path exists.
 func EnsureDir(path string) error {
 	dir := filepath.Dir(path)
-	return os.MkdirAll(dir, os.ModePerm)
+	return os.MkdirAll(dir, 0755)
 }
