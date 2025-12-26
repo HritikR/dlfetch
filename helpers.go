@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // CheckFileExists checks if a file exists at the given path.
@@ -47,4 +48,31 @@ func DetermineMimeType(req DownloadRequest, respContentType string, filePath str
 	buf := make([]byte, 512)
 	n, _ := file.Read(buf)
 	return http.DetectContentType(buf[:n])
+}
+
+// isOfType is a generic helper to check if the file belongs to a category like "image", "video", "audio"
+func (d *DownloadResult) isOfType(category string) bool {
+	category = strings.ToLower(category)
+
+	// Check MIME type first
+	if d.MimeType != "" && strings.HasPrefix(strings.ToLower(d.MimeType), category+"/") {
+		return true
+	}
+
+	// Fallback: check by file extension
+	ext := strings.ToLower(filepath.Ext(d.FileName))
+	mimeType := mime.TypeByExtension(ext)
+	return strings.HasPrefix(mimeType, category+"/")
+}
+
+func (d *DownloadResult) IsImage() bool {
+	return d.isOfType("image")
+}
+
+func (d *DownloadResult) IsVideo() bool {
+	return d.isOfType("video")
+}
+
+func (d *DownloadResult) IsAudio() bool {
+	return d.isOfType("audio")
 }
