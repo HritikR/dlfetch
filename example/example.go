@@ -14,7 +14,7 @@ func main() {
 		dlfetch.WithMaxWorkers(4),
 		dlfetch.WithOnComplete(func(result dlfetch.DownloadResult) {
 			fmt.Printf(
-				"Download completed: id=%s file=%s path=%s mime=%s\n",
+				"Download completed: id=%d file=%s path=%s mime=%s\n",
 				result.ID,
 				result.FileName,
 				result.Path,
@@ -23,7 +23,7 @@ func main() {
 		}),
 		dlfetch.WithOnError(func(req dlfetch.DownloadRequest, err error) {
 			log.Printf(
-				"Download failed: id=%s url=%s error=%v\n",
+				"Download failed: id=%d url=%s error=%v\n",
 				req.ID,
 				req.URL,
 				err,
