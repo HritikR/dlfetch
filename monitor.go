@@ -1,12 +1,15 @@
 package dlfetch
 
 import (
+	"sort"
 	"sync"
+	"time"
 )
 
 type Monitor interface {
 	add(DownloadRequest)
-	update(id int, done, total int64)
+	update(id int, done, total int64, ds float64, eta string)
+	close()
 	markAsCompleted(id int)
 	markAsFailed(id int, err error)
 	GetSnapshot() MonitorSnapshot
@@ -44,26 +47,41 @@ func (m *TaskMonitor) signalEvent() {
 	}
 }
 
+func (m *TaskMonitor) close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	select {
+	case <-m.eventSignal:
+		// already closed or drained
+	default:
+		close(m.eventSignal)
+	}
+}
+
 // Add downloadRequest to track its progress
 func (m *TaskMonitor) add(req DownloadRequest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tasks[req.ID] = &DownloadTask{
-		ID:       req.ID,
-		FileName: req.FileName,
-		Status:   StatusPending,
+		ID:         req.ID,
+		FileName:   req.FileName,
+		Status:     StatusPending,
+		EnqueuedAt: time.Now(),
 	}
 	m.signalEvent()
 }
 
 // Update the progress and status of a download task
-func (m *TaskMonitor) update(id int, done int64, total int64) {
+func (m *TaskMonitor) update(id int, done int64, total int64, ds float64, eta string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t, ok := m.tasks[id]; ok {
 		t.DoneBytes = done
 		t.TotalBytes = total
 		t.Status = StatusInProgress
+		t.DownloadSpeed = ds
+		t.ETA = eta
 	}
 	m.signalEvent()
 }
@@ -75,6 +93,8 @@ func (m *TaskMonitor) markAsCompleted(id int) {
 	if t, ok := m.tasks[id]; ok {
 		t.DoneBytes = t.TotalBytes
 		t.Status = StatusCompleted
+		now := time.Now()
+		t.CompletedAt = &now
 	}
 	m.signalEvent()
 }
@@ -96,36 +116,86 @@ func (m *TaskMonitor) GetSnapshot() MonitorSnapshot {
 	defer m.mu.RUnlock()
 
 	snapshot := MonitorSnapshot{}
+
+	var pendingTasks []pendingTask
+
 	for _, t := range m.tasks {
 		snapshot.Tasks = append(snapshot.Tasks, *t)
 		snapshot.Count.Total++
 		switch t.Status {
+		case StatusPending:
+			snapshot.Count.Pending++
+			pendingTasks = append(pendingTasks, pendingTask{
+				id:         t.ID,
+				enqueuedAt: t.EnqueuedAt,
+			})
 		case StatusCompleted:
 			snapshot.Count.Completed++
 		case StatusFailed:
 			snapshot.Count.Failed++
 		case StatusInProgress:
 			snapshot.Count.InProgress++
-		case StatusPending:
-			snapshot.Count.Pending++
 		}
 	}
+
+	// Sort pending tasks by enqueue time (FIFO order)
+	sort.Slice(pendingTasks, func(i, j int) bool {
+		return pendingTasks[i].enqueuedAt.Before(pendingTasks[j].enqueuedAt)
+	})
+
+	queuePositions := make(map[int]int)
+	for pos, pt := range pendingTasks {
+		queuePositions[pt.id] = pos + 1
+	}
+
+	for i := range snapshot.Tasks {
+		if snapshot.Tasks[i].Status == StatusPending {
+			snapshot.Tasks[i].QueuePosition = queuePositions[snapshot.Tasks[i].ID]
+		} else {
+			snapshot.Tasks[i].QueuePosition = 0 // Not in pending state
+		}
+	}
+
 	return snapshot
 }
 
 // Monitor Writer
 // This is a custom writer that reports progress to the monitor
 type monitorWriter struct {
-	id      int
-	total   int64
-	written int64
-	monitor Monitor
+	id        int
+	total     int64
+	written   int64
+	monitor   Monitor
+	startTime time.Time
 }
 
 func (mw *monitorWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	mw.written += int64(n)
-	mw.monitor.update(mw.id, mw.written, mw.total)
+
+	// Set startTime, when we start the download
+	if mw.startTime.IsZero() {
+		mw.startTime = time.Now()
+	}
+
+	elapsed := time.Since(mw.startTime).Seconds()
+	speedMBs := (float64(mw.written) / (1024 * 1024)) / elapsed
+
+	var eta string
+	if mw.total > 0 {
+
+		remainingBytes := mw.total - mw.written
+		if speedMBs > 0 {
+			etaSec := float64(remainingBytes) / (speedMBs * 1024 * 1024)
+			eta = time.Duration(etaSec * float64(time.Second)).Truncate(time.Second).String()
+		} else {
+			eta = "calculating..."
+		}
+	} else {
+		eta = "unknown"
+	}
+
+	mw.monitor.update(mw.id, mw.written, mw.total, speedMBs, eta)
 	return n, nil
 }
 
@@ -134,9 +204,10 @@ func (mw *monitorWriter) Write(p []byte) (int, error) {
 
 type noopMonitor struct{}
 
-func (n *noopMonitor) add(DownloadRequest)          {}
-func (n *noopMonitor) update(int, int64, int64)     {}
-func (n *noopMonitor) markAsCompleted(int)          {}
-func (n *noopMonitor) markAsFailed(int, error)      {}
-func (n *noopMonitor) GetSnapshot() MonitorSnapshot { return MonitorSnapshot{} }
-func (n *noopMonitor) EventSignal() <-chan struct{} { return nil }
+func (n *noopMonitor) add(DownloadRequest)                       {}
+func (n *noopMonitor) update(int, int64, int64, float64, string) {}
+func (n *noopMonitor) close()                                    {}
+func (n *noopMonitor) markAsCompleted(int)                       {}
+func (n *noopMonitor) markAsFailed(int, error)                   {}
+func (n *noopMonitor) GetSnapshot() MonitorSnapshot              { return MonitorSnapshot{} }
+func (n *noopMonitor) EventSignal() <-chan struct{}              { return nil }

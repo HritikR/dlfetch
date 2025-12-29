@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 )
 
@@ -97,23 +96,26 @@ func New(options ...FetcherOption) *Fetcher {
 }
 
 // Enqueue adds a download request to the Fetcher's queue.
-func (f *Fetcher) Enqueue(req DownloadRequest) {
+func (f *Fetcher) Enqueue(req DownloadRequest) EnqueueResult {
 	if err := f.validateRequest(&req); err != nil {
-		if f.onError != nil {
-			f.onError(req, err)
-		}
-		return
+		return EnqueueResult{Queued: false, Error: err}
 	}
 
 	f.monitor.add(req)
 	f.queue <- req
+	return EnqueueResult{Queued: true, Error: nil}
 }
 
 // EnqueueMany adds multiple download requests to the Fetcher's queue.
-func (f *Fetcher) EnqueueMany(reqs []DownloadRequest) {
+func (f *Fetcher) EnqueueMany(reqs []DownloadRequest) []EnqueueResult {
+	results := make([]EnqueueResult, 0, len(reqs))
+
 	for _, req := range reqs {
-		f.Enqueue(req)
+		result := f.Enqueue(req)
+		results = append(results, result)
 	}
+
+	return results
 }
 
 // Start begins processing download requests with the configured number of workers.
@@ -125,9 +127,11 @@ func (f *Fetcher) Start() {
 }
 
 // Stop signals the Fetcher to stop processing and waits for all workers to finish.
+// Closes the monitor's event signal
 func (f *Fetcher) Stop() {
 	close(f.stopChan)
 	f.wg.Wait()
+	f.monitor.close()
 }
 
 func (f *Fetcher) worker() {
@@ -161,6 +165,7 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 	if checkFileExists(req.FullPath) {
 		err := fmt.Errorf("file already exists: id=%d, name=%s, path=%s", req.ID, req.FileName, req.FullPath)
 		f.monitor.markAsFailed(req.ID, err)
+		return DownloadResult{}, err
 	}
 
 	// Ensure directory exists
@@ -197,14 +202,13 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 
 	mw := &monitorWriter{
 		id:      req.ID,
-		total:   resp.ContentLength,
+		total:   resolveFileSize(resp),
 		monitor: f.monitor,
 	}
 
 	reader := io.TeeReader(resp.Body, mw)
 
 	if _, err := io.Copy(out, reader); err != nil {
-		out.Close()
 		_ = os.Remove(tmpPath)
 		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
@@ -230,18 +234,4 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 		Path:     req.FullPath,
 		MimeType: determineMimeType(req, respContentType, req.FullPath),
 	}, nil
-}
-
-// validateRequest checks if the file name is not nil or empty
-// also checks if file already exists
-func (f *Fetcher) validateRequest(req *DownloadRequest) error {
-	ensureFileName(req)
-
-	req.FullPath = filepath.Join(f.targetDir, req.Path, req.FileName)
-
-	if checkFileExists(req.FullPath) {
-		return fmt.Errorf("file already exists: %s", req.FullPath)
-	}
-
-	return nil
 }
