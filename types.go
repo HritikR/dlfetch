@@ -66,5 +66,3 @@ type pendingTask struct {
 	id         int
 	enqueuedAt time.Time
 }
-
-var pendingTasks []pendingTask
