@@ -47,7 +47,7 @@ You can also add and manage multiple download requests at once using the `Enqueu
 go get -u github.com/hritikr/dlfetch
 ```
 
-## Support & Contribution
+## Contribution
 
 For any issues or to provide feedback, please open an issue on this repository. We also welcome contributions. If you'd like to make changes or improve this library, please feel free to make a pull request.
 
