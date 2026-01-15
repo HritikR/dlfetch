@@ -86,7 +86,7 @@ func (f *Fetcher) validateRequest(req *DownloadRequest) error {
 
 	req.FullPath = filepath.Join(f.targetDir, req.Path, req.FileName)
 
-	if checkFileExists(req.FullPath) {
+	if !f.enableOverwrite && checkFileExists(req.FullPath) {
 		return fmt.Errorf("file already exists: %s", req.FullPath)
 	}
 

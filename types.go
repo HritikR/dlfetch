@@ -37,6 +37,7 @@ const (
 type DownloadTask struct {
 	ID            int            `json:"id"`
 	FileName      string         `json:"fileName"`
+	FilePath      string         `json:"filePath"`
 	TotalBytes    int64          `json:"totalBytes"`
 	DoneBytes     int64          `json:"doneBytes"`
 	Status        DownloadStatus `json:"status"`
@@ -52,7 +53,7 @@ type DownloadTask struct {
 type TaskStatusCount struct {
 	Total      int `json:"total"`
 	Pending    int `json:"pending"`
-	InProgress int `json:"inProgress"`
+	InProgress int `json:"in_progress"`
 	Completed  int `json:"completed"`
 	Failed     int `json:"failed"`
 }

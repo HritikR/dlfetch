@@ -18,15 +18,16 @@ const (
 // Fetcher is responsible for managing download requests and processing them.
 // It supports configuration through functional options.
 type Fetcher struct {
-	requestClient *http.Client                 // HTTP client to make requests
-	maxWorkers    int                          // Maximum number of concurrent workers
-	targetDir     string                       // Directory to save downloaded files
-	queue         chan DownloadRequest         // Channel to queue download requests
-	wg            sync.WaitGroup               // WaitGroup to manage goroutines
-	stopChan      chan struct{}                // Channel to signal stopping of fetcher
-	onComplete    func(DownloadResult)         // Callback function on download completion
-	onError       func(DownloadRequest, error) // Callback function on error
-	monitor       Monitor                      // Monitor to track download progress and status
+	requestClient   *http.Client                 // HTTP client to make requests
+	maxWorkers      int                          // Maximum number of concurrent workers
+	targetDir       string                       // Directory to save downloaded files
+	queue           chan DownloadRequest         // Channel to queue download requests
+	wg              sync.WaitGroup               // WaitGroup to manage goroutines
+	stopChan        chan struct{}                // Channel to signal stopping of fetcher
+	onComplete      func(DownloadResult)         // Callback function on download completion
+	onError         func(DownloadRequest, error) // Callback function on error
+	monitor         Monitor                      // Monitor to track download progress and status
+	enableOverwrite bool                         // Enable Overwriting when file is already available
 }
 
 // FetcherOption defines a function type for configuring the Fetcher.
@@ -75,16 +76,25 @@ func WithMonitor(m Monitor) FetcherOption {
 	}
 }
 
+// WithEnableOverwrite sets the enableOverwrite for the Fetcher
+// When enabled the files gets overwritten if they exists
+func WithEnableOverwrite(eo bool) FetcherOption {
+	return func(f *Fetcher) {
+		f.enableOverwrite = eo
+	}
+}
+
 // New creates a new Fetcher instance with the provided options.
 func New(options ...FetcherOption) *Fetcher {
 	// Default values
 	fetcher := &Fetcher{
-		requestClient: http.DefaultClient,
-		maxWorkers:    defaultWorkers,
-		targetDir:     defaultTargetDir,
-		queue:         make(chan DownloadRequest, defaultQueueSize),
-		stopChan:      make(chan struct{}),
-		monitor:       &noopMonitor{},
+		requestClient:   http.DefaultClient,
+		maxWorkers:      defaultWorkers,
+		targetDir:       defaultTargetDir,
+		queue:           make(chan DownloadRequest, defaultQueueSize),
+		stopChan:        make(chan struct{}),
+		monitor:         &noopMonitor{},
+		enableOverwrite: false,
 	}
 
 	// Apply provided options
@@ -162,7 +172,7 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 
 	// Check if file already exists
 	// To make sure another program / process has not created the file
-	if checkFileExists(req.FullPath) {
+	if !f.enableOverwrite && checkFileExists(req.FullPath) {
 		err := fmt.Errorf("file already exists: id=%d, name=%s, path=%s", req.ID, req.FileName, req.FullPath)
 		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err

@@ -66,6 +66,7 @@ func (m *TaskMonitor) add(req DownloadRequest) {
 	m.tasks[req.ID] = &DownloadTask{
 		ID:         req.ID,
 		FileName:   req.FileName,
+		FilePath:   req.FullPath,
 		Status:     StatusPending,
 		EnqueuedAt: time.Now(),
 	}
