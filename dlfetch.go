@@ -169,7 +169,6 @@ func (f *Fetcher) worker() {
 // processDownload handles the actual downloading of a file based on the DownloadRequest.
 // It returns a DownloadResult or an error if the download fails.
 func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
-	f.monitor.markAsStarted(req.ID)
 
 	// Check if file already exists
 	// To make sure another program / process has not created the file

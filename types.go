@@ -42,7 +42,7 @@ type DownloadTask struct {
 	DoneBytes     int64          `json:"doneBytes"`
 	Status        DownloadStatus `json:"status"`
 	Error         string         `json:"error,omitempty"`
-	StartTime     time.Time      `json:"startTime"`
+	StartedAt     time.Time      `json:"startedAt"`
 	CompletedAt   *time.Time     `json:"completedAt,omitempty"`
 	DownloadSpeed float64        `json:"downloadSpeed"`
 	ETA           string         `json:"eta"`

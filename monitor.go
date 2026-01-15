@@ -1,7 +1,6 @@
 package dlfetch
 
 import (
-	"math"
 	"sort"
 	"sync"
 	"time"
@@ -11,7 +10,6 @@ type Monitor interface {
 	add(DownloadRequest)
 	update(id int, done, total int64, ds float64, eta string)
 	close()
-	markAsStarted(id int)
 	markAsCompleted(id int)
 	markAsFailed(id int, err error)
 	GetSnapshot() MonitorSnapshot
@@ -80,24 +78,16 @@ func (m *TaskMonitor) update(id int, done int64, total int64, ds float64, eta st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t, ok := m.tasks[id]; ok {
-		t.DoneBytes = done
-		t.TotalBytes = total
-		t.Status = StatusInProgress
-		t.DownloadSpeed = ds
-		t.ETA = eta
-	}
-	m.signalEvent()
-}
-
-// Mark task as started
-func (m *TaskMonitor) markAsStarted(id int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if t, ok := m.tasks[id]; ok {
-		if t.StartTime.IsZero() { // check if start time is not set
-			t.StartTime = time.Now()
+		// set startedAt if not already set
+		if t.StartedAt.IsZero() {
+			t.StartedAt = time.Now()
 			t.Status = StatusInProgress
 		}
+
+		t.DoneBytes = done
+		t.TotalBytes = total
+		t.DownloadSpeed = ds
+		t.ETA = eta
 	}
 	m.signalEvent()
 }
@@ -197,15 +187,13 @@ func (mw *monitorWriter) Write(p []byte) (int, error) {
 	}
 
 	elapsed := time.Since(mw.startTime).Seconds()
-	speedMBs := (float64(mw.written) / (1024 * 1024)) / elapsed
-	speedMBs = math.Round(speedMBs*10) / 10
+	speedBPS := float64(mw.written) / elapsed
 
 	var eta string
 	if mw.total > 0 {
-
 		remainingBytes := mw.total - mw.written
-		if speedMBs > 0 {
-			etaSec := float64(remainingBytes) / (speedMBs * 1024 * 1024)
+		if speedBPS > 0 {
+			etaSec := float64(remainingBytes) / speedBPS
 			eta = time.Duration(etaSec * float64(time.Second)).Truncate(time.Second).String()
 		} else {
 			eta = "calculating..."
@@ -214,7 +202,7 @@ func (mw *monitorWriter) Write(p []byte) (int, error) {
 		eta = "unknown"
 	}
 
-	mw.monitor.update(mw.id, mw.written, mw.total, speedMBs, eta)
+	mw.monitor.update(mw.id, mw.written, mw.total, speedBPS, eta)
 	return n, nil
 }
 
@@ -226,7 +214,6 @@ type noopMonitor struct{}
 func (n *noopMonitor) add(DownloadRequest)                       {}
 func (n *noopMonitor) update(int, int64, int64, float64, string) {}
 func (n *noopMonitor) close()                                    {}
-func (n *noopMonitor) markAsStarted(int)                         {}
 func (n *noopMonitor) markAsCompleted(int)                       {}
 func (n *noopMonitor) markAsFailed(int, error)                   {}
 func (n *noopMonitor) GetSnapshot() MonitorSnapshot              { return MonitorSnapshot{} }
