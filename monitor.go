@@ -11,6 +11,7 @@ type Monitor interface {
 	add(DownloadRequest)
 	update(id int, done, total int64, ds float64, eta string)
 	close()
+	markAsStarted(id int)
 	markAsCompleted(id int)
 	markAsFailed(id int, err error)
 	GetSnapshot() MonitorSnapshot
@@ -84,6 +85,19 @@ func (m *TaskMonitor) update(id int, done int64, total int64, ds float64, eta st
 		t.Status = StatusInProgress
 		t.DownloadSpeed = ds
 		t.ETA = eta
+	}
+	m.signalEvent()
+}
+
+// Mark task as started
+func (m *TaskMonitor) markAsStarted(id int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.tasks[id]; ok {
+		if t.StartTime.IsZero() { // check if start time is not set
+			t.StartTime = time.Now()
+			t.Status = StatusInProgress
+		}
 	}
 	m.signalEvent()
 }
@@ -212,6 +226,7 @@ type noopMonitor struct{}
 func (n *noopMonitor) add(DownloadRequest)                       {}
 func (n *noopMonitor) update(int, int64, int64, float64, string) {}
 func (n *noopMonitor) close()                                    {}
+func (n *noopMonitor) markAsStarted(int)                         {}
 func (n *noopMonitor) markAsCompleted(int)                       {}
 func (n *noopMonitor) markAsFailed(int, error)                   {}
 func (n *noopMonitor) GetSnapshot() MonitorSnapshot              { return MonitorSnapshot{} }
