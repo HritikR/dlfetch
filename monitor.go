@@ -1,6 +1,7 @@
 package dlfetch
 
 import (
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -92,7 +93,9 @@ func (m *TaskMonitor) markAsCompleted(id int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t, ok := m.tasks[id]; ok {
-		t.DoneBytes = t.TotalBytes
+		if t.TotalBytes > 0 {
+			t.DoneBytes = t.TotalBytes
+		}
 		t.Status = StatusCompleted
 		now := time.Now()
 		t.CompletedAt = &now
@@ -181,6 +184,7 @@ func (mw *monitorWriter) Write(p []byte) (int, error) {
 
 	elapsed := time.Since(mw.startTime).Seconds()
 	speedMBs := (float64(mw.written) / (1024 * 1024)) / elapsed
+	speedMBs = math.Round(speedMBs*10) / 10
 
 	var eta string
 	if mw.total > 0 {

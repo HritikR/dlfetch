@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+const UnknownSize int64 = -1
+
 // checkFileExists checks if a file exists at the given path.
 func checkFileExists(path string) bool {
 	_, err := os.Stat(path)
@@ -121,5 +123,5 @@ func resolveFileSize(resp *http.Response) int64 {
 	}
 
 	// Unknown size
-	return -1
+	return UnknownSize
 }
