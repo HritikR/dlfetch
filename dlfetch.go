@@ -1,6 +1,7 @@
 package dlfetch
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,12 +19,13 @@ const (
 // Fetcher is responsible for managing download requests and processing them.
 // It supports configuration through functional options.
 type Fetcher struct {
+	ctx             context.Context              // Context for cancellation and timeouts
+	cancel          context.CancelFunc           // Cancel function to stop the fetcher
 	requestClient   *http.Client                 // HTTP client to make requests
 	maxWorkers      int                          // Maximum number of concurrent workers
 	targetDir       string                       // Directory to save downloaded files
 	queue           chan DownloadRequest         // Channel to queue download requests
 	wg              sync.WaitGroup               // WaitGroup to manage goroutines
-	stopChan        chan struct{}                // Channel to signal stopping of fetcher
 	onComplete      func(DownloadResult)         // Callback function on download completion
 	onError         func(DownloadRequest, error) // Callback function on error
 	monitor         Monitor                      // Monitor to track download progress and status
@@ -84,15 +86,25 @@ func WithEnableOverwrite(eo bool) FetcherOption {
 	}
 }
 
+// WithContext sets the context for the Fetcher, allowing for cancellation and timeouts.
+func WithContext(ctx context.Context) FetcherOption {
+	return func(f *Fetcher) {
+		f.ctx, f.cancel = context.WithCancel(ctx)
+	}
+}
+
 // New creates a new Fetcher instance with the provided options.
 func New(options ...FetcherOption) *Fetcher {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// Default values
 	fetcher := &Fetcher{
+		ctx:             ctx,
+		cancel:          cancel,
 		requestClient:   http.DefaultClient,
 		maxWorkers:      defaultWorkers,
 		targetDir:       defaultTargetDir,
 		queue:           make(chan DownloadRequest, defaultQueueSize),
-		stopChan:        make(chan struct{}),
 		monitor:         &noopMonitor{},
 		enableOverwrite: false,
 	}
@@ -136,10 +148,13 @@ func (f *Fetcher) Start() {
 	}
 }
 
-// Stop signals the Fetcher to stop processing and waits for all workers to finish.
-// Closes the monitor's event signal
+// Stop gracefully shuts down the Fetcher.
+// It cancels the internal context to stop accepting new work
+// and abort any in-flight download requests.
+// Then it waits for all worker goroutines to exit
+// and finally closes the monitor.
 func (f *Fetcher) Stop() {
-	close(f.stopChan)
+	f.cancel()
 	f.wg.Wait()
 	f.monitor.close()
 }
@@ -149,6 +164,8 @@ func (f *Fetcher) worker() {
 
 	for {
 		select {
+		case <-f.ctx.Done():
+			return
 		case req := <-f.queue:
 			result, err := f.processDownload(req)
 			if err != nil {
@@ -160,8 +177,6 @@ func (f *Fetcher) worker() {
 			if f.onComplete != nil {
 				f.onComplete(result)
 			}
-		case <-f.stopChan:
-			return
 		}
 	}
 }
@@ -185,8 +200,16 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 		return DownloadResult{}, err
 	}
 
+	// Create HTTP request with context for cancellation
+	httpReq, err := http.NewRequestWithContext(f.ctx, http.MethodGet, req.URL, nil)
+
+	if err != nil {
+		f.monitor.markAsFailed(req.ID, err)
+		return DownloadResult{}, err
+	}
+
 	// Perform the download
-	resp, err := f.requestClient.Get(req.URL)
+	resp, err := f.requestClient.Do(httpReq)
 	if err != nil {
 		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
@@ -219,6 +242,7 @@ func (f *Fetcher) processDownload(req DownloadRequest) (DownloadResult, error) {
 	reader := io.TeeReader(resp.Body, mw)
 
 	if _, err := io.Copy(out, reader); err != nil {
+		out.Close()
 		_ = os.Remove(tmpPath)
 		f.monitor.markAsFailed(req.ID, err)
 		return DownloadResult{}, err
